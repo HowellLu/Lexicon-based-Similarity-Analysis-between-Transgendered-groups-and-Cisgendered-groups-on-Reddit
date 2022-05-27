@@ -1,0 +1,599 @@
+---
+title: "Text As Data R Code"
+author: "Howell Lu"
+date: "4/28/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Part 1: How to scrape from twitter to create dataset:
+
+```{r}
+library(readr)
+MTF <- read_csv("C:/Users/howel/OneDrive/Desktop/MTFDFN.csv")
+Women <- read_csv("C:/Users/howel/OneDrive/Desktop/WomenArray.csv")
+FTM <- read_csv("C:/Users/howel/OneDrive/Desktop/FTMDFN.csv")
+Men <- read_csv("C:/Users/howel/OneDrive/Desktop/menArray.csv")
+
+```
+
+
+Post-Processing  
+
+
+```{r}
+FTMReal<-FTM[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|women|men|woman|ennnnnnnnnnnnbbbbbby|man|gender|ftm|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|lesbian", FTM$Subreddit, ignore.case = TRUE),]
+FTMReal<-FTMReal[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|woman|man|women|men|gender|ftm|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|.com", FTMReal$Comments, ignore.case = TRUE),]
+MTFReal<-MTF[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|women|men|woman|ennnnnnnnnnnnbbbbbby|man|gender|mtf|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|lesbian", MTF$Subreddit, ignore.case = TRUE),]
+MTFReal<-MTFReal[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|woman|man|women|men|gender|mtf|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|.com", MTFReal$Comments, ignore.case = TRUE),]
+
+MenReal<-Men[!grepl("male|men|man|gender|boy|askmen", Men$Subreddit, ignore.case = TRUE),]
+MenReal<-MenReal[!grepl("male|men|man|gender|boy|askmen|.com", MenReal$Comments, ignore.case = TRUE),]
+WomenReal<-Women[!grepl("female|women|woman|gender|girl|TwoXChromosomes", Women$Subreddit, ignore.case = TRUE),]
+WomenReal<-WomenReal[!grepl("female|women|woman|gender|girl|TwoXChromosomes|.com", WomenReal$Comments, ignore.case = TRUE),]
+
+MenReal<-MenReal[!grepl("automoderator", MenReal$User, ignore.case = TRUE),]
+WomenReal<-WomenReal[!grepl("automoderator", WomenReal$User, ignore.case = TRUE),]
+FTMReal<-FTMReal[!grepl("automoderator", FTMReal$User, ignore.case = TRUE),]
+MTFReal<-MTFReal[!grepl("automoderator", MTFReal$User, ignore.case = TRUE),]
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+WomenRealS <- sample(nrow(WomenReal),40000)
+MenRealS <- sample(nrow(MenReal),40000)
+WomenReal <- WomenReal[WomenRealS, ]
+MenReal <- MenReal[MenRealS, ]
+
+```
+
+
+
+
+Building a corpus with wordscore:
+The first step is to merge
+
+```{r}
+library(quanteda)
+library(quanteda.corpora)
+library(readtext)
+library(dplyr)
+library(quanteda.textmodels)
+library(readr)
+library(assertr)
+library(caret)
+```
+
+```{r}
+MenDF <- MenReal$Comments
+MenDF<-data.frame(MenDF)
+MenCorpus<-toString(MenReal$Comments)
+WomenCorpus<-toString(WomenReal$Comments)
+```
+
+
+```{r}
+ClassMen<-cbind(MenCorpus, "CisMale")
+ClassWomen<-cbind(WomenCorpus, "CisFemale")
+CisGender<-rbind(ClassMen,ClassWomen)
+CisGenderDF <- tibble(text = CisGender[,1],class = CisGender[,2])
+CisGenderDFM <- dfm(CisGenderDF$text,removeNumbers = TRUE, remove_punct = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE)
+```
+
+```{r}
+ws_base <- textmodel_wordscores(CisGenderDFM, 
+                                y = (2 * as.numeric(CisGenderDF$class == "CisMale")) - 1,smooth=1)
+```
+
+#Therefore -1 will be Female and 1 will be Male
+
+```{r}
+MaleFeat <- sort(ws_base$wordscores, decreasing = TRUE)
+MaleFeat[1:100] 
+```
+
+```{r}
+FemaleFeat <- sort(ws_base$wordscores, decreasing = FALSE)
+FemaleFeat[1:100] 
+```
+
+
+```{r}
+FTMRealS <- sample(nrow(FTMReal))
+MTFRealS <- sample(nrow(MTFReal))
+
+```
+
+```{r}
+store<- vector()
+
+for(var in 0:234){
+store<-c(store,toString(FTMReal[FTMRealS[(var*100):((var+1)*100)], ]$Comments))  
+}
+
+for(var in 0:234){
+store<-c(store,toString(MTFReal[MTFRealS[(var*100):((var+1)*100)], ]$Comments))  
+}
+
+```
+
+```{r}
+labelingwordscore<-vector()
+
+for(var in 0:234){
+labelingwordscore<-c(labelingwordscore,paste(("FTM"),var))
+}
+
+for(var in 0:234){
+labelingwordscore<-c(labelingwordscore,paste(("MTF"),var))
+}
+```
+
+```{r}
+TransCorpus<-corpus(store,docvars = labelingwordscore ,docnames = labelingwordscore)
+```
+
+```{r}
+TransGenderDFM <- dfm(TransCorpus,removeNumbers = TRUE, remove_punct = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE)
+```
+
+
+
+```{r}
+x<-predict(ws_base, newdata = TransGenderDFM,
+        rescaling = "lbg", level = 0.95) 
+```
+
+```{r}
+buzz<-as.table(x)
+```
+
+```{r}
+sum(buzz[0:235] < 0)
+```
+```{r}
+sum(buzz[236:470] > 0)
+```
+
+The calculation will be done manually as we know that there are exactly 470 subsections of the corpus used. 235 of these subsections are supposed to be male and 235 of these are supposed to be female. 
+
+TP: 229
+FP: 13
+FN: 6
+TN: 222
+
+Accurary: 451/470
+F1: 
+
+
+
+
+
+
+
+
+
+
+```{r}
+store<- vector()
+
+for(var in 0:149){
+store<-c(store,toString(FTMReal[FTMRealS[(var*200):((var+1)*200)], ]$Comments))  
+}
+
+for(var in 0:149){
+store<-c(store,toString(MTFReal[MTFRealS[(var*200):((var+1)*200)], ]$Comments))  
+}
+
+```
+
+```{r}
+labelingwordscore<-vector()
+
+for(var in 0:149){
+labelingwordscore<-c(labelingwordscore,paste(("FTM"),var))
+}
+
+for(var in 0:149){
+labelingwordscore<-c(labelingwordscore,paste(("MTF"),var))
+}
+```
+
+```{r}
+TransCorpus<-corpus(store,docvars = labelingwordscore ,docnames = labelingwordscore)
+```
+
+```{r}
+TransGenderDFM <- dfm(TransCorpus,removeNumbers = TRUE, remove_punct = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE)
+```
+
+
+
+```{r}
+x<-predict(ws_base, newdata = TransGenderDFM,
+        rescaling = "lbg", level = 0.95) 
+```
+
+```{r}
+buzz<-as.table(x)
+```
+
+```{r}
+sum(buzz[0:150] < 0)
+```
+```{r}
+sum(buzz[151:300] > 0)
+```
+
+
+```{r}
+store<- vector()
+
+for(var in 0:0){
+store<-c(store,toString(FTMReal[FTMRealS[(var*200):((var+1)*20000)], ]$Comments))  
+}
+
+for(var in 0:0){
+store<-c(store,toString(MTFReal[MTFRealS[(var*200):((var+1)*20000)], ]$Comments))  
+}
+
+```
+
+```{r}
+labelingwordscore<-vector()
+
+for(var in 0:0){
+labelingwordscore<-c(labelingwordscore,paste(("FTM"),var))
+}
+
+for(var in 0:0){
+labelingwordscore<-c(labelingwordscore,paste(("MTF"),var))
+}
+```
+
+```{r}
+TransCorpus<-corpus(store,docvars = labelingwordscore ,docnames = labelingwordscore)
+```
+
+```{r}
+TransGenderDFM <- dfm(TransCorpus,removeNumbers = TRUE, remove_punct = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE)
+```
+
+
+
+```{r}
+x<-predict(ws_base, newdata = TransGenderDFM,
+        rescaling = "lbg", level = 0.95) 
+```
+
+```{r}
+buzz<-as.table(x)
+buzz
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Build a corpus with that
+
+
+```{r}
+library(readr)
+MTF <- read_csv("C:/Users/howel/OneDrive/Desktop/MTFDFN.csv")
+Women <- read_csv("C:/Users/howel/OneDrive/Desktop/WomenArray.csv")
+FTM <- read_csv("C:/Users/howel/OneDrive/Desktop/FTMDFN.csv")
+Men <- read_csv("C:/Users/howel/OneDrive/Desktop/menArray.csv")
+
+FTMReal<-FTM[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|women|men|woman|ennnnnnnnnnnnbbbbbby|man|gender|ftm|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|lesbian", FTM$Subreddit, ignore.case = TRUE),]
+FTMReal<-FTMReal[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|woman|man|women|men|gender|ftm|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|.com", FTMReal$Comments, ignore.case = TRUE),]
+MTFReal<-MTF[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|women|men|woman|ennnnnnnnnnnnbbbbbby|man|gender|mtf|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|lesbian", MTF$Subreddit, ignore.case = TRUE),]
+MTFReal<-MTFReal[!grepl("nonbinary|trans|egg|gay|non-binary|female|male|cis|woman|man|women|men|gender|mtf|queer|traaaaaaannnnnnnnnns|boys|girls|lgbt|enby|.com", MTFReal$Comments, ignore.case = TRUE),]
+
+MenReal<-Men[!grepl("male|men|man|gender|boy|askmen", Men$Subreddit, ignore.case = TRUE),]
+MenReal<-MenReal[!grepl("male|men|man|gender|boy|askmen|.com", MenReal$Comments, ignore.case = TRUE),]
+WomenReal<-Women[!grepl("female|women|woman|gender|girl|TwoXChromosomes", Women$Subreddit, ignore.case = TRUE),]
+WomenReal<-WomenReal[!grepl("female|women|woman|gender|girl|TwoXChromosomes|.com", WomenReal$Comments, ignore.case = TRUE),]
+
+MenReal<-MenReal[!grepl("automoderator", MenReal$User, ignore.case = TRUE),]
+WomenReal<-WomenReal[!grepl("automoderator", WomenReal$User, ignore.case = TRUE),]
+FTMReal<-FTMReal[!grepl("automoderator", FTMReal$User, ignore.case = TRUE),]
+MTFReal<-MTFReal[!grepl("automoderator", MTFReal$User, ignore.case = TRUE),]
+
+Menlong<-MenReal[as.numeric(ave(MenReal$User, MenReal$User, FUN=length)) >= 100, ]
+Womenlong<-WomenReal[as.numeric(ave(WomenReal$User, WomenReal$User, FUN=length)) >= 100, ]
+Ftmlong<-FTMReal[as.numeric(ave(FTMReal$User, FTMReal$User, FUN=length)) >= 100, ]
+Mtflong<-MTFReal[as.numeric(ave(MTFReal$User, MTFReal$User, FUN=length)) >= 100, ]
+
+Menlong<-aggregate(Comments ~ User, data = Menlong, c)
+Womenlong<-aggregate(Comments ~ User, data = Womenlong, c)
+Ftmlong<-aggregate(Comments ~ User, data = Ftmlong, c)
+Mtflong<-aggregate(Comments ~ User, data = Mtflong, c)
+
+```
+
+
+
+```{r}
+MenComments<-cbind(Menlong$Comments,"Male")
+WomenComments<-cbind(Womenlong$Comments,"Female")
+FTMComments<-cbind(Ftmlong$Comments,"FTM")
+MTFComments<-cbind(Mtflong$Comments,"MTF")
+
+```
+
+
+
+
+
+```{r}
+TotalCorpus<-rbind(MenComments,WomenComments,FTMComments,MTFComments)
+
+TotalCorpus <- tibble(text = TotalCorpus[,1],class = TotalCorpus[,2])
+
+TotalCorpusCha<- "1"
+
+```
+
+```{r}
+
+for(var in 1:585){
+TotalCorpusCha<-cbind(TotalCorpusCha,toString(unlist(TotalCorpus$text[var])))
+}
+
+text<-TotalCorpusCha[2:586]
+
+class = unlist(TotalCorpus$class)
+
+dfmfinal<-data.frame(text,class)
+```
+
+
+
+
+
+```{r}
+TotalCorpusDFM <- dfm(dfmfinal$text, remove_punct = TRUE,removeNumbers = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE) %>% 
+  dfm_trim(min_termfreq = 12) %>% 
+  convert("matrix")
+```
+
+
+
+
+```{r}
+ids_train <- createDataPartition(1:nrow(TotalCorpusDFM), p = 0.8, list = FALSE, times = 1)
+train_x <- TotalCorpusDFM[ids_train, ] %>% as.data.frame()
+train_y <- dfmfinal$class[ids_train] %>% as.factor()
+test_x <- TotalCorpusDFM[-ids_train, ]  %>% as.data.frame() # test set data
+test_y <- dfmfinal$class[-ids_train] %>% as.factor() # test set labels
+```
+
+```{r}
+baseline_acc <- max(prop.table(table(test_y)))
+trctrl <- trainControl(method = "none") 
+
+```
+
+
+```{r}
+mtry <- 3*(sqrt(ncol(train_x)))
+ncol(train_x)
+mtry
+ntree <- 1400
+```
+```{r}
+library(randomForest)
+
+```
+
+
+```{r}
+suppressWarnings(rf.base <- randomForest(x = train_x, y = train_y, ntree = ntree, mtry = mtry, importance = TRUE))
+token_importance <- round(importance(rf.base, 2), 2)
+head(rownames(token_importance)[order(-token_importance)])
+```
+
+
+
+```{r}
+suppressWarnings(predict_test <- predict(rf.base, newdata = test_x))
+```
+
+
+```{r}
+confusionMatrix(data = predict_test, reference = test_y)
+
+```
+
+
+
+
+
+
+
+
+```{r}
+trainControl <- trainControl(method = "cv", number = 5)
+metric <- "Accuracy"
+mtry <- 3*(sqrt(ncol(train_x)))
+ntree <- 1400
+tunegrid <- expand.grid(.mtry = mtry)
+suppressWarnings(system.time(rf.caret <- train(x = train_x, y = train_y, 
+                              method = "rf", metric = metric, 
+                              tuneGrid = tunegrid, trControl = trainControl,
+                              ntree = ntree)
+            ))
+
+# print results
+print(rf.caret)
+
+rf.caret$finalModel
+
+suppressWarnings(rf_predict <- predict(rf.caret, newdata = test_x))
+confusionMatrix(rf_predict, reference = test_y)
+
+# plot importance
+varImpPlot(rf.caret$finalModel, n.var = 10, main = "Variable Importance")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+MenCorpus<-toString(MTFReal$Comments)
+WomenCorpus<-toString(FTMReal$Comments)
+```
+
+
+```{r}
+ClassMen<-cbind(MenCorpus, "CisMale")
+ClassWomen<-cbind(WomenCorpus, "CisFemale")
+CisGender<-rbind(ClassMen,ClassWomen)
+
+```
+
+
+```{r}
+CisGenderDF <- tibble(text = CisGender[,1],class = CisGender[,2])
+```
+
+
+
+```{r}
+CisGenderDFM <- dfm(CisGenderDF$text, remove_punct = TRUE,removeNumbers = TRUE, remove = c(stopwords("english"),stopwords("german"),stopwords("french"),stopwords("spanish"),stopwords("hungarian"),stopwords("chinese"),stopwords("russian")), tolower = TRUE )
+```
+
+```{r}
+ws_base <- textmodel_wordscores(CisGenderDFM, 
+                                y = (2 * as.numeric(CisGenderDF$class == "CisMale")) - 1,smooth=1)
+``` 
+
+#This is a list of the most common male-to-female words.
+
+
+```{r}
+MaleFeat <- sort(ws_base$wordscores, decreasing = TRUE)
+MaleFeat[1:100] 
+```
+
+
+#This is a list of the most popular male to female words
+
+```{r}
+FemaleFeat <- sort(ws_base$wordscores, decreasing = FALSE)
+FemaleFeat[1:100] 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
